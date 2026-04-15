@@ -1,65 +1,157 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import CsvUploader from "@/components/CsvUploader";
+import ZipCodeInput from "@/components/ZipCodeInput";
+
+interface UploadResult {
+  artistCount: number;
+  songCount: number;
+  newArtists: number;
+}
 
 export default function Home() {
+  const router = useRouter();
+  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [zipCode, setZipCode] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleUpload = useCallback((result: UploadResult) => {
+    setUploadResult(result);
+    setError(null);
+  }, []);
+
+  const handleFindShows = async () => {
+    if (!uploadResult || uploadResult.artistCount === 0) {
+      setError("Upload playlist CSVs first.");
+      return;
+    }
+    if (zipCode.length !== 5) {
+      setError("Enter a valid 5-digit zip code.");
+      return;
+    }
+
+    setError(null);
+    setIsSearching(true);
+
+    try {
+      const res = await fetch(`/api/events?zip=${zipCode}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to search for events.");
+        return;
+      }
+
+      // Store zip in localStorage for calendar page
+      localStorage.setItem("showfinder_zip", zipCode);
+      router.push("/calendar");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="mb-10 text-center">
+        <h1 className="text-4xl font-bold tracking-tight">
+          Find Local Shows
+        </h1>
+        <p className="mt-3 text-lg text-zinc-500 dark:text-zinc-400">
+          Upload your Spotify playlist exports and discover upcoming concerts
+          near you.
+        </p>
+      </div>
+
+      <div className="space-y-8">
+        {/* Step 1: Upload CSVs */}
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              1
+            </span>
+            <h2 className="text-lg font-semibold">Upload Playlists</h2>
+          </div>
+          <CsvUploader onUploadComplete={handleUpload} />
+          {uploadResult && (
+            <div className="mt-4 rounded-xl bg-emerald-50 p-4 dark:bg-emerald-900/20">
+              <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                Loaded {uploadResult.artistCount} artists and{" "}
+                {uploadResult.songCount} songs from your playlists.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Step 2: Enter zip code */}
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              2
+            </span>
+            <h2 className="text-lg font-semibold">Set Your Location</h2>
+          </div>
+          <ZipCodeInput onZipChange={setZipCode} />
+        </section>
+
+        {/* Step 3: Find shows */}
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              3
+            </span>
+            <h2 className="text-lg font-semibold">Find Shows</h2>
+          </div>
+          <button
+            onClick={handleFindShows}
+            disabled={isSearching || !uploadResult || zipCode.length !== 5}
+            className="w-full rounded-xl bg-emerald-600 px-6 py-3 text-lg font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-700 dark:hover:bg-emerald-600"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+            {isSearching ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                Searching Ticketmaster...
+              </span>
+            ) : (
+              "Find Shows Near Me"
+            )}
+          </button>
+
+          {error && (
+            <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+        </section>
+
+        {/* How to export from Spotify */}
+        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800/50">
+          <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+            How to export your Spotify playlists as CSV
+          </h3>
+          <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <li>
+              Go to{" "}
+              <a
+                href="https://www.exportify.net/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-emerald-600 underline dark:text-emerald-400"
+              >
+                Exportify
+              </a>{" "}
+              and sign in with your Spotify account
+            </li>
+            <li>Select the playlists you want to export</li>
+            <li>Download each as a CSV file</li>
+            <li>Upload the CSV files above</li>
+          </ol>
+        </section>
+      </div>
     </div>
   );
 }
