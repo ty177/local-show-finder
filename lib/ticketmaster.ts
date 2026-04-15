@@ -61,15 +61,7 @@ interface TicketmasterResponse {
   page?: {
     totalElements: number;
     totalPages: number;
-  };
-}
-
-interface AttractionResponse {
-  _embedded?: {
-    attractions: Array<{
-      id: string;
-      name: string;
-    }>;
+    number: number;
   };
 }
 
@@ -79,20 +71,6 @@ function getApiKey(): string {
     throw new Error("TICKETMASTER_API_KEY environment variable is not set");
   }
   return apiKey;
-}
-
-async function fetchWithRetry(url: string): Promise<Response | null> {
-  const response = await fetch(url);
-
-  if (response.status === 429) {
-    await new Promise((r) => setTimeout(r, 1100));
-    const retry = await fetch(url);
-    if (!retry.ok) return null;
-    return retry;
-  }
-
-  if (!response.ok) return null;
-  return response;
 }
 
 function getBestImage(images: TicketmasterImage[]): string {
@@ -117,7 +95,6 @@ function isOnSale(event: TicketmasterEvent): boolean {
 
   const publicSale = event.sales?.public;
   if (!publicSale) return true;
-
   if (publicSale.startTBD) return false;
 
   const start = publicSale.startDateTime;
@@ -131,7 +108,6 @@ function isOnSale(event: TicketmasterEvent): boolean {
 
 function isGeneralAdmission(event: TicketmasterEvent): boolean {
   if (!event.seatmap) return true;
-
   if (event.priceRanges) {
     return event.priceRanges.some(
       (pr) =>
@@ -139,7 +115,6 @@ function isGeneralAdmission(event: TicketmasterEvent): boolean {
         pr.type?.toLowerCase().includes("standard")
     );
   }
-
   return false;
 }
 
@@ -177,113 +152,106 @@ function mapEvent(
     imageUrl: getBestImage(event.images || []),
     generalAdmission: isGeneralAdmission(event),
     priceRange: formatPriceRange(event),
-    matchedArtists: matchedArtists,
+    matchedArtists,
   };
 }
 
-// Step 1: Resolve artist name → Ticketmaster attractionId
-async function resolveAttractionId(
-  artistName: string
-): Promise<string | null> {
-  const apiKey = getApiKey();
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    keyword: artistName,
-    classificationName: "music",
-    size: "1",
-  });
-
-  const response = await fetchWithRetry(
-    `${BASE_URL}/attractions.json?${params}`
-  );
-  if (!response) return null;
-
-  const data: AttractionResponse = await response.json();
-  const attraction = data._embedded?.attractions?.[0];
-  if (!attraction) return null;
-
-  // Verify the name is a reasonable match (avoid false positives)
-  const queryLower = artistName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const resultLower = attraction.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (
-    !resultLower.includes(queryLower) &&
-    !queryLower.includes(resultLower)
-  ) {
-    return null;
+// Build a set of normalized artist names for fast matching
+function buildArtistIndex(artists: Artist[]): Map<string, Artist> {
+  const index = new Map<string, Artist>();
+  for (const artist of artists) {
+    index.set(artist.name.toLowerCase().trim(), artist);
   }
-
-  return attraction.id;
+  return index;
 }
 
-// Step 2: Search events by attractionId near a zip code
-async function searchEventsByAttraction(
-  attractionId: string,
+// Match a Ticketmaster event's attractions against the user's artists
+function matchArtists(
+  event: TicketmasterEvent,
+  artistIndex: Map<string, Artist>
+): Artist[] {
+  const matched: Artist[] = [];
+  const attractions = event._embedded?.attractions || [];
+
+  for (const attraction of attractions) {
+    const name = attraction.name.toLowerCase().trim();
+    const artist = artistIndex.get(name);
+    if (artist) {
+      matched.push(artist);
+      continue;
+    }
+    // Fuzzy: check if any user artist name is contained in the attraction name or vice versa
+    for (const [key, a] of artistIndex) {
+      if (
+        (name.includes(key) || key.includes(name)) &&
+        !matched.includes(a)
+      ) {
+        matched.push(a);
+      }
+    }
+  }
+
+  // Also check the event name itself for artist mentions
+  if (matched.length === 0) {
+    const eventNameLower = event.name.toLowerCase();
+    for (const [key, a] of artistIndex) {
+      if (key.length >= 4 && eventNameLower.includes(key)) {
+        matched.push(a);
+      }
+    }
+  }
+
+  return matched;
+}
+
+// Fetch all music events near a zip code, paginating through results
+async function fetchAllLocalEvents(
   zipCode: string,
   radius: number
 ): Promise<TicketmasterEvent[]> {
   const apiKey = getApiKey();
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    attractionId,
-    postalCode: zipCode,
-    radius: String(radius),
-    unit: "miles",
-    classificationName: "music",
-    sort: "date,asc",
-    size: "20",
-  });
+  const allEvents: TicketmasterEvent[] = [];
+  const maxPages = 5; // 5 pages × 200 events = up to 1000 events
 
-  const response = await fetchWithRetry(`${BASE_URL}/events.json?${params}`);
-  if (!response) return [];
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams({
+      apikey: apiKey,
+      postalCode: zipCode,
+      radius: String(radius),
+      unit: "miles",
+      classificationName: "music",
+      sort: "date,asc",
+      size: "200",
+      page: String(page),
+    });
 
-  const data: TicketmasterResponse = await response.json();
-  return data._embedded?.events || [];
-}
+    const response = await fetch(`${BASE_URL}/events.json?${params}`);
 
-// Fallback: keyword-based event search (catches cases where attraction
-// lookup fails but keyword matches on the event name)
-async function searchEventsByKeyword(
-  artistName: string,
-  zipCode: string,
-  radius: number
-): Promise<TicketmasterEvent[]> {
-  const apiKey = getApiKey();
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    keyword: artistName,
-    postalCode: zipCode,
-    radius: String(radius),
-    unit: "miles",
-    classificationName: "music",
-    sort: "date,asc",
-    size: "20",
-  });
+    if (response.status === 429) {
+      await new Promise((r) => setTimeout(r, 1100));
+      const retry = await fetch(`${BASE_URL}/events.json?${params}`);
+      if (!retry.ok) break;
+      const data: TicketmasterResponse = await retry.json();
+      const events = data._embedded?.events || [];
+      allEvents.push(...events);
+      if (!data.page || page >= (data.page.totalPages || 1) - 1) break;
+      continue;
+    }
 
-  const response = await fetchWithRetry(`${BASE_URL}/events.json?${params}`);
-  if (!response) return [];
+    if (!response.ok) break;
 
-  const data: TicketmasterResponse = await response.json();
-  return data._embedded?.events || [];
-}
+    const data: TicketmasterResponse = await response.json();
+    const events = data._embedded?.events || [];
+    allEvents.push(...events);
 
-export async function searchEventsForArtist(
-  artistName: string,
-  zipCode: string,
-  radius: number = 40
-): Promise<TicketmasterEvent[]> {
-  // Try attraction-based search first (more accurate)
-  const attractionId = await resolveAttractionId(artistName);
-  if (attractionId) {
-    const events = await searchEventsByAttraction(
-      attractionId,
-      zipCode,
-      radius
-    );
-    if (events.length > 0) return events;
+    // Stop if we've fetched all pages
+    if (!data.page || page >= (data.page.totalPages || 1) - 1) break;
+
+    // Small delay between pages
+    await new Promise((r) => setTimeout(r, 200));
   }
 
-  // Fallback to keyword search
-  return searchEventsByKeyword(artistName, zipCode, radius);
+  return allEvents;
 }
 
 export async function findEventsForArtists(
@@ -291,53 +259,38 @@ export async function findEventsForArtists(
   zipCode: string,
   radius: number = 40
 ): Promise<EventData[]> {
+  const artistIndex = buildArtistIndex(artists);
+
+  // Fetch all music events near the zip code (fast: ~5 API calls max)
+  const allLocalEvents = await fetchAllLocalEvents(zipCode, radius);
+
   const eventMap = new Map<string, EventData>();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // Process in batches of 3 (each artist makes up to 3 API calls:
-  // attraction lookup + event search + possible keyword fallback)
-  const batchSize = 3;
-  for (let i = 0; i < artists.length; i += batchSize) {
-    const batch = artists.slice(i, i + batchSize);
+  for (const event of allLocalEvents) {
+    // Only future events with tickets on sale
+    const eventDate = new Date(event.dates.start.localDate);
+    if (eventDate < today) continue;
+    if (!isOnSale(event)) continue;
 
-    const results = await Promise.all(
-      batch.map(async (artist) => {
-        const events = await searchEventsForArtist(
-          artist.name,
-          zipCode,
-          radius
-        );
-        return { artist, events };
-      })
-    );
+    // Match against user's artists
+    const matched = matchArtists(event, artistIndex);
+    if (matched.length === 0) continue;
 
-    for (const { artist, events } of results) {
-      for (const event of events) {
-        if (!isOnSale(event)) continue;
-
-        // Only include future events
-        const eventDate = new Date(event.dates.start.localDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (eventDate < today) continue;
-
-        const existing = eventMap.get(event.id);
-        if (existing) {
-          if (
-            !existing.matchedArtists.some(
-              (a) => a.name.toLowerCase() === artist.name.toLowerCase()
-            )
-          ) {
-            existing.matchedArtists.push(artist);
-          }
-        } else {
-          eventMap.set(event.id, mapEvent(event, [artist]));
+    const existing = eventMap.get(event.id);
+    if (existing) {
+      for (const a of matched) {
+        if (
+          !existing.matchedArtists.some(
+            (ea) => ea.name.toLowerCase() === a.name.toLowerCase()
+          )
+        ) {
+          existing.matchedArtists.push(a);
         }
       }
-    }
-
-    // Delay between batches to stay within rate limits
-    if (i + batchSize < artists.length) {
-      await new Promise((r) => setTimeout(r, 500));
+    } else {
+      eventMap.set(event.id, mapEvent(event, matched));
     }
   }
 
