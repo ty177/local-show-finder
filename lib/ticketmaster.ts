@@ -64,9 +64,39 @@ interface TicketmasterResponse {
   };
 }
 
+interface AttractionResponse {
+  _embedded?: {
+    attractions: Array<{
+      id: string;
+      name: string;
+    }>;
+  };
+}
+
+function getApiKey(): string {
+  const apiKey = process.env.TICKETMASTER_API_KEY;
+  if (!apiKey) {
+    throw new Error("TICKETMASTER_API_KEY environment variable is not set");
+  }
+  return apiKey;
+}
+
+async function fetchWithRetry(url: string): Promise<Response | null> {
+  const response = await fetch(url);
+
+  if (response.status === 429) {
+    await new Promise((r) => setTimeout(r, 1100));
+    const retry = await fetch(url);
+    if (!retry.ok) return null;
+    return retry;
+  }
+
+  if (!response.ok) return null;
+  return response;
+}
+
 function getBestImage(images: TicketmasterImage[]): string {
   if (!images || images.length === 0) return "";
-  // Prefer 16:9 ratio, largest width
   const sorted = [...images].sort((a, b) => {
     const aScore = (a.ratio === "16_9" ? 1000 : 0) + (a.width || 0);
     const bScore = (b.ratio === "16_9" ? 1000 : 0) + (b.width || 0);
@@ -78,30 +108,30 @@ function getBestImage(images: TicketmasterImage[]): string {
 function isOnSale(event: TicketmasterEvent): boolean {
   const now = new Date().toISOString();
 
-  // Check event status
-  if (event.dates?.status?.code === "cancelled" || event.dates?.status?.code === "postponed") {
+  if (
+    event.dates?.status?.code === "cancelled" ||
+    event.dates?.status?.code === "postponed"
+  ) {
     return false;
   }
 
   const publicSale = event.sales?.public;
-  if (!publicSale) return true; // If no sales info, assume on sale
+  if (!publicSale) return true;
 
   if (publicSale.startTBD) return false;
 
   const start = publicSale.startDateTime;
   const end = publicSale.endDateTime;
 
-  if (start && now < start) return false; // Not yet on sale
-  if (end && now > end) return false; // Sale ended
+  if (start && now < start) return false;
+  if (end && now > end) return false;
 
   return true;
 }
 
 function isGeneralAdmission(event: TicketmasterEvent): boolean {
-  // No seatmap usually means GA
   if (!event.seatmap) return true;
 
-  // Check price ranges for GA indicators
   if (event.priceRanges) {
     return event.priceRanges.some(
       (pr) =>
@@ -122,7 +152,10 @@ function formatPriceRange(event: TicketmasterEvent): string | null {
   return `$${range.min.toFixed(2)} - $${range.max.toFixed(2)}`;
 }
 
-function mapEvent(event: TicketmasterEvent, matchedArtists: Artist[]): EventData {
+function mapEvent(
+  event: TicketmasterEvent,
+  matchedArtists: Artist[]
+): EventData {
   const venue = event._embedded?.venues?.[0];
   return {
     id: event.id,
@@ -148,17 +181,73 @@ function mapEvent(event: TicketmasterEvent, matchedArtists: Artist[]): EventData
   };
 }
 
-export async function searchEventsForArtist(
-  artistName: string,
-  zipCode: string,
-  radius: number = 40
-): Promise<TicketmasterEvent[]> {
-  const apiKey = process.env.TICKETMASTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("TICKETMASTER_API_KEY environment variable is not set");
+// Step 1: Resolve artist name → Ticketmaster attractionId
+async function resolveAttractionId(
+  artistName: string
+): Promise<string | null> {
+  const apiKey = getApiKey();
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    keyword: artistName,
+    classificationName: "music",
+    size: "1",
+  });
+
+  const response = await fetchWithRetry(
+    `${BASE_URL}/attractions.json?${params}`
+  );
+  if (!response) return null;
+
+  const data: AttractionResponse = await response.json();
+  const attraction = data._embedded?.attractions?.[0];
+  if (!attraction) return null;
+
+  // Verify the name is a reasonable match (avoid false positives)
+  const queryLower = artistName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const resultLower = attraction.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (
+    !resultLower.includes(queryLower) &&
+    !queryLower.includes(resultLower)
+  ) {
+    return null;
   }
 
-  const now = new Date().toISOString().split(".")[0] + "Z";
+  return attraction.id;
+}
+
+// Step 2: Search events by attractionId near a zip code
+async function searchEventsByAttraction(
+  attractionId: string,
+  zipCode: string,
+  radius: number
+): Promise<TicketmasterEvent[]> {
+  const apiKey = getApiKey();
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    attractionId,
+    postalCode: zipCode,
+    radius: String(radius),
+    unit: "miles",
+    classificationName: "music",
+    sort: "date,asc",
+    size: "20",
+  });
+
+  const response = await fetchWithRetry(`${BASE_URL}/events.json?${params}`);
+  if (!response) return [];
+
+  const data: TicketmasterResponse = await response.json();
+  return data._embedded?.events || [];
+}
+
+// Fallback: keyword-based event search (catches cases where attraction
+// lookup fails but keyword matches on the event name)
+async function searchEventsByKeyword(
+  artistName: string,
+  zipCode: string,
+  radius: number
+): Promise<TicketmasterEvent[]> {
+  const apiKey = getApiKey();
   const params = new URLSearchParams({
     apikey: apiKey,
     keyword: artistName,
@@ -167,25 +256,34 @@ export async function searchEventsForArtist(
     unit: "miles",
     classificationName: "music",
     sort: "date,asc",
-    startDateTime: now,
     size: "20",
   });
 
-  const response = await fetch(`${BASE_URL}/events.json?${params}`);
-
-  if (response.status === 429) {
-    // Rate limited — wait and retry once
-    await new Promise((r) => setTimeout(r, 1000));
-    const retry = await fetch(`${BASE_URL}/events.json?${params}`);
-    if (!retry.ok) return [];
-    const data: TicketmasterResponse = await retry.json();
-    return data._embedded?.events || [];
-  }
-
-  if (!response.ok) return [];
+  const response = await fetchWithRetry(`${BASE_URL}/events.json?${params}`);
+  if (!response) return [];
 
   const data: TicketmasterResponse = await response.json();
   return data._embedded?.events || [];
+}
+
+export async function searchEventsForArtist(
+  artistName: string,
+  zipCode: string,
+  radius: number = 40
+): Promise<TicketmasterEvent[]> {
+  // Try attraction-based search first (more accurate)
+  const attractionId = await resolveAttractionId(artistName);
+  if (attractionId) {
+    const events = await searchEventsByAttraction(
+      attractionId,
+      zipCode,
+      radius
+    );
+    if (events.length > 0) return events;
+  }
+
+  // Fallback to keyword search
+  return searchEventsByKeyword(artistName, zipCode, radius);
 }
 
 export async function findEventsForArtists(
@@ -195,27 +293,40 @@ export async function findEventsForArtists(
 ): Promise<EventData[]> {
   const eventMap = new Map<string, EventData>();
 
-  // Process in batches to respect rate limits (5 req/sec on free tier)
-  const batchSize = 5;
+  // Process in batches of 3 (each artist makes up to 3 API calls:
+  // attraction lookup + event search + possible keyword fallback)
+  const batchSize = 3;
   for (let i = 0; i < artists.length; i += batchSize) {
     const batch = artists.slice(i, i + batchSize);
 
     const results = await Promise.all(
       batch.map(async (artist) => {
-        const events = await searchEventsForArtist(artist.name, zipCode, radius);
+        const events = await searchEventsForArtist(
+          artist.name,
+          zipCode,
+          radius
+        );
         return { artist, events };
       })
     );
 
     for (const { artist, events } of results) {
       for (const event of events) {
-        // Only include future events with tickets on sale
         if (!isOnSale(event)) continue;
+
+        // Only include future events
+        const eventDate = new Date(event.dates.start.localDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (eventDate < today) continue;
 
         const existing = eventMap.get(event.id);
         if (existing) {
-          // Merge matched artists if this event matches multiple
-          if (!existing.matchedArtists.some((a) => a.name.toLowerCase() === artist.name.toLowerCase())) {
+          if (
+            !existing.matchedArtists.some(
+              (a) => a.name.toLowerCase() === artist.name.toLowerCase()
+            )
+          ) {
             existing.matchedArtists.push(artist);
           }
         } else {
@@ -224,13 +335,12 @@ export async function findEventsForArtists(
       }
     }
 
-    // Small delay between batches to avoid rate limits
+    // Delay between batches to stay within rate limits
     if (i + batchSize < artists.length) {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
-  // Sort by date
   return Array.from(eventMap.values()).sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
