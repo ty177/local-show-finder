@@ -1,10 +1,19 @@
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 import type { Artist, EventData } from "./types";
 
-// When KV_REST_API_URL is set, use Vercel KV (Redis) for persistence.
+// When UPSTASH_REDIS_REST_URL is set, use Upstash Redis for persistence.
 // Otherwise fall back to in-memory store for local dev.
 
-const useKv = !!process.env.KV_REST_API_URL;
+const useRedis =
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const redis = useRedis
+  ? new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    })
+  : null;
 
 // ── In-memory fallback ──────────────────────────────────────────────
 
@@ -25,50 +34,50 @@ const mem: MemStore = {
 // ── Public API (all async) ──────────────────────────────────────────
 
 export async function getArtists(): Promise<Artist[]> {
-  if (!useKv) return mem.artists;
-  return (await kv.get<Artist[]>("artists")) || [];
+  if (!redis) return mem.artists;
+  return (await redis.get<Artist[]>("artists")) || [];
 }
 
 export async function setArtists(artists: Artist[]): Promise<void> {
-  if (!useKv) {
+  if (!redis) {
     mem.artists = artists;
     return;
   }
-  await kv.set("artists", artists);
+  await redis.set("artists", JSON.stringify(artists));
 }
 
 export async function getEvents(): Promise<EventData[]> {
-  if (!useKv) return mem.events;
-  return (await kv.get<EventData[]>("events")) || [];
+  if (!redis) return mem.events;
+  return (await redis.get<EventData[]>("events")) || [];
 }
 
 export async function setEvents(events: EventData[]): Promise<void> {
   const now = Date.now();
-  if (!useKv) {
+  if (!redis) {
     mem.events = events;
     mem.lastFetched = now;
     return;
   }
-  await kv.set("events", events);
-  await kv.set("lastFetched", now);
+  await redis.set("events", JSON.stringify(events));
+  await redis.set("lastFetched", now);
 }
 
 export async function getZipCode(): Promise<string> {
-  if (!useKv) return mem.zipCode;
-  return (await kv.get<string>("zipCode")) || "";
+  if (!redis) return mem.zipCode;
+  return (await redis.get<string>("zipCode")) || "";
 }
 
 export async function setZipCode(zip: string): Promise<void> {
-  if (!useKv) {
+  if (!redis) {
     mem.zipCode = zip;
     return;
   }
-  await kv.set("zipCode", zip);
+  await redis.set("zipCode", zip);
 }
 
 export async function getLastFetched(): Promise<number> {
-  if (!useKv) return mem.lastFetched;
-  return (await kv.get<number>("lastFetched")) || 0;
+  if (!redis) return mem.lastFetched;
+  return (await redis.get<number>("lastFetched")) || 0;
 }
 
 export async function shouldRefresh(): Promise<boolean> {
