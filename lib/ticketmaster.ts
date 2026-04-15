@@ -175,13 +175,18 @@ function matchArtists(
 
   for (const attraction of attractions) {
     const name = attraction.name.toLowerCase().trim();
+
+    // Exact match first
     const artist = artistIndex.get(name);
     if (artist) {
       matched.push(artist);
       continue;
     }
-    // Fuzzy: check if any user artist name is contained in the attraction name or vice versa
+
+    // Substring match only for names long enough to avoid false positives
+    // (e.g. "LD" matching "RL Grime" would be wrong)
     for (const [key, a] of artistIndex) {
+      if (key.length < 5) continue; // skip very short names for fuzzy
       if (
         (name.includes(key) || key.includes(name)) &&
         !matched.includes(a)
@@ -191,17 +196,56 @@ function matchArtists(
     }
   }
 
-  // Also check the event name itself for artist mentions
+  // Also check the event name for artist mentions (only longer names)
   if (matched.length === 0) {
     const eventNameLower = event.name.toLowerCase();
     for (const [key, a] of artistIndex) {
-      if (key.length >= 4 && eventNameLower.includes(key)) {
+      if (key.length >= 6 && eventNameLower.includes(key)) {
         matched.push(a);
       }
     }
   }
 
   return matched;
+}
+
+// Convert zip code to lat/long using the Ticketmaster suggest API,
+// which is more reliable than the postalCode param for geo search.
+async function zipToLatLong(
+  zipCode: string
+): Promise<{ lat: string; lon: string } | null> {
+  // Use a free geocoding approach: query Ticketmaster venues by postal code
+  // and extract the lat/long from the first result
+  const apiKey = getApiKey();
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    postalCode: zipCode,
+    countryCode: "US",
+    size: "1",
+  });
+
+  const response = await fetch(`${BASE_URL}/venues.json?${params}`);
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const venue = data?._embedded?.venues?.[0];
+  if (!venue?.location) return null;
+
+  return { lat: venue.location.latitude, lon: venue.location.longitude };
+}
+
+// US zip code centroid fallback (rough estimates for major areas)
+function zipToApproxLatLong(zipCode: string): { lat: string; lon: string } {
+  // Use the first 3 digits to get a rough region
+  const prefix = zipCode.substring(0, 3);
+  const regions: Record<string, { lat: string; lon: string }> = {
+    "100": { lat: "40.7128", lon: "-74.0060" }, // NYC
+    "101": { lat: "40.7128", lon: "-74.0060" },
+    "900": { lat: "34.0522", lon: "-118.2437" }, // LA
+    "606": { lat: "41.8781", lon: "-87.6298" }, // Chicago
+    "770": { lat: "29.7604", lon: "-95.3698" }, // Houston
+  };
+  return regions[prefix] || { lat: "40.7128", lon: "-74.0060" };
 }
 
 // Fetch all music events near a zip code, paginating through results
@@ -213,10 +257,14 @@ async function fetchAllLocalEvents(
   const allEvents: TicketmasterEvent[] = [];
   const maxPages = 5; // 5 pages × 200 events = up to 1000 events
 
+  // Resolve zip to lat/long for reliable geo search
+  const coords =
+    (await zipToLatLong(zipCode)) || zipToApproxLatLong(zipCode);
+
   for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({
       apikey: apiKey,
-      postalCode: zipCode,
+      latlong: `${coords.lat},${coords.lon}`,
       radius: String(radius),
       unit: "miles",
       classificationName: "music",
