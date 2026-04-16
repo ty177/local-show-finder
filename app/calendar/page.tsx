@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import EventCalendar from "@/components/EventCalendar";
 import EventCard from "@/components/EventCard";
-import type { EventData } from "@/lib/types";
+import type { EventData, Artist } from "@/lib/types";
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<EventData[]>([]);
@@ -18,8 +18,21 @@ export default function CalendarPage() {
   const fetchEvents = useCallback(async (zip: string) => {
     setLoading(true);
     setError(null);
+
+    const storedArtists = localStorage.getItem("showfinder_artists");
+    if (!storedArtists) {
+      setError("No artist data found. Go to the home page to upload playlists.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/events?zip=${zip}`);
+      const artists: Artist[] = JSON.parse(storedArtists);
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zip, artists }),
+      });
       const data = await res.json();
 
       if (!res.ok) {
@@ -29,6 +42,9 @@ export default function CalendarPage() {
 
       setEvents(data.events);
       setArtistCount(data.artistCount || 0);
+      // Cache events for the event detail page
+      localStorage.setItem("showfinder_events", JSON.stringify(data.events));
+      localStorage.setItem("showfinder_artistCount", String(data.artistCount));
     } catch {
       setError("Failed to load events. Please try again.");
     } finally {
@@ -38,13 +54,28 @@ export default function CalendarPage() {
 
   useEffect(() => {
     const zip = localStorage.getItem("showfinder_zip") || "";
-    if (zip) {
-      setZipCode(zip);
-      setIcsUrl(`${window.location.origin}/api/calendar.ics?zip=${zip}`);
-      fetchEvents(zip);
-    } else {
+    if (!zip) {
       setLoading(false);
       setError("No zip code set. Go to the home page to set your location.");
+      return;
+    }
+
+    setZipCode(zip);
+    setIcsUrl(`${window.location.origin}/api/calendar.ics?zip=${zip}`);
+
+    // Try cached events first, then refresh
+    const cachedEvents = localStorage.getItem("showfinder_events");
+    const cachedCount = localStorage.getItem("showfinder_artistCount");
+    if (cachedEvents) {
+      try {
+        setEvents(JSON.parse(cachedEvents));
+        setArtistCount(Number(cachedCount) || 0);
+        setLoading(false);
+      } catch {
+        fetchEvents(zip);
+      }
+    } else {
+      fetchEvents(zip);
     }
   }, [fetchEvents]);
 

@@ -4,11 +4,11 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import CsvUploader from "@/components/CsvUploader";
 import ZipCodeInput from "@/components/ZipCodeInput";
+import type { Artist } from "@/lib/types";
 
 interface UploadResult {
   artistCount: number;
   songCount: number;
-  newArtists: number;
 }
 
 export default function Home() {
@@ -33,11 +33,22 @@ export default function Home() {
       return;
     }
 
+    const storedArtists = localStorage.getItem("showfinder_artists");
+    if (!storedArtists) {
+      setError("Artist data not found. Please re-upload your CSVs.");
+      return;
+    }
+
     setError(null);
     setIsSearching(true);
 
     try {
-      const res = await fetch(`/api/events?zip=${zipCode}`);
+      const artists: Artist[] = JSON.parse(storedArtists);
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zip: zipCode, artists }),
+      });
       const data = await res.json();
 
       if (!res.ok) {
@@ -45,8 +56,10 @@ export default function Home() {
         return;
       }
 
-      // Store zip in localStorage for calendar page
+      // Cache events in localStorage for the calendar page
       localStorage.setItem("showfinder_zip", zipCode);
+      localStorage.setItem("showfinder_events", JSON.stringify(data.events));
+      localStorage.setItem("showfinder_artistCount", String(data.artistCount));
       router.push("/calendar");
     } catch {
       setError("Network error. Please try again.");

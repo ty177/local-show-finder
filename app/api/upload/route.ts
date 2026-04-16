@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { parseCsvContent, mergeArtists } from "@/lib/csv-parser";
-import { getArtists, setArtists } from "@/lib/store";
 
 export async function POST(request: Request) {
   try {
@@ -26,15 +25,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Merge with existing artists
-    const existing = await getArtists();
-    const merged = mergeArtists(existing, allNewArtists);
-    await setArtists(merged);
-
     return NextResponse.json({
-      artistCount: merged.length,
-      songCount: merged.reduce((sum, a) => sum + a.songs.length, 0),
-      newArtists: allNewArtists.length,
+      artists: allNewArtists,
+      artistCount: allNewArtists.length,
+      songCount: allNewArtists.reduce((sum, a) => sum + a.songs.length, 0),
     });
   } catch (err) {
     return NextResponse.json(

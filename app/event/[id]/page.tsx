@@ -16,20 +16,18 @@ export default function EventPage({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const zip = localStorage.getItem("showfinder_zip") || "";
-    if (!zip) {
-      setLoading(false);
-      return;
-    }
-
-    fetch(`/api/events?zip=${zip}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const found = data.events?.find((e: EventData) => e.id === id);
+    // Read events from localStorage cache
+    const cachedEvents = localStorage.getItem("showfinder_events");
+    if (cachedEvents) {
+      try {
+        const events: EventData[] = JSON.parse(cachedEvents);
+        const found = events.find((e) => e.id === id);
         setEvent(found || null);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      } catch {
+        // ignore parse errors
+      }
+    }
+    setLoading(false);
   }, [id]);
 
   if (loading) {

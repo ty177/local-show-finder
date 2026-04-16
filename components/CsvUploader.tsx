@@ -5,7 +5,6 @@ import { useState, useCallback, useRef } from "react";
 interface UploadResult {
   artistCount: number;
   songCount: number;
-  newArtists: number;
 }
 
 export default function CsvUploader({
@@ -52,7 +51,16 @@ export default function CsvUploader({
           return;
         }
 
-        onUploadComplete(data);
+        // Store artists in localStorage for the search request
+        localStorage.setItem(
+          "showfinder_artists",
+          JSON.stringify(data.artists)
+        );
+
+        onUploadComplete({
+          artistCount: data.artistCount,
+          songCount: data.songCount,
+        });
       } catch {
         setError("Network error. Please try again.");
       } finally {
