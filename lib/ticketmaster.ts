@@ -176,76 +176,33 @@ function matchArtists(
   for (const attraction of attractions) {
     const name = attraction.name.toLowerCase().trim();
 
-    // Exact match first
+    // Exact match on attraction name
     const artist = artistIndex.get(name);
     if (artist) {
       matched.push(artist);
-      continue;
-    }
-
-    // Substring match only for names long enough to avoid false positives
-    // (e.g. "LD" matching "RL Grime" would be wrong)
-    for (const [key, a] of artistIndex) {
-      if (key.length < 5) continue; // skip very short names for fuzzy
-      if (
-        (name.includes(key) || key.includes(name)) &&
-        !matched.includes(a)
-      ) {
-        matched.push(a);
-      }
-    }
-  }
-
-  // Also check the event name for artist mentions (only longer names)
-  if (matched.length === 0) {
-    const eventNameLower = event.name.toLowerCase();
-    for (const [key, a] of artistIndex) {
-      if (key.length >= 6 && eventNameLower.includes(key)) {
-        matched.push(a);
-      }
     }
   }
 
   return matched;
 }
 
-// Convert zip code to lat/long using the Ticketmaster suggest API,
-// which is more reliable than the postalCode param for geo search.
+// Convert zip code to lat/long using the free zippopotam.us API
 async function zipToLatLong(
   zipCode: string
-): Promise<{ lat: string; lon: string } | null> {
-  // Use a free geocoding approach: query Ticketmaster venues by postal code
-  // and extract the lat/long from the first result
-  const apiKey = getApiKey();
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    postalCode: zipCode,
-    countryCode: "US",
-    size: "1",
-  });
+): Promise<{ lat: string; lon: string }> {
+  try {
+    const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`);
+    if (!response.ok) throw new Error("Zip lookup failed");
 
-  const response = await fetch(`${BASE_URL}/venues.json?${params}`);
-  if (!response.ok) return null;
+    const data = await response.json();
+    const place = data?.places?.[0];
+    if (!place?.latitude || !place?.longitude) throw new Error("No coords");
 
-  const data = await response.json();
-  const venue = data?._embedded?.venues?.[0];
-  if (!venue?.location) return null;
-
-  return { lat: venue.location.latitude, lon: venue.location.longitude };
-}
-
-// US zip code centroid fallback (rough estimates for major areas)
-function zipToApproxLatLong(zipCode: string): { lat: string; lon: string } {
-  // Use the first 3 digits to get a rough region
-  const prefix = zipCode.substring(0, 3);
-  const regions: Record<string, { lat: string; lon: string }> = {
-    "100": { lat: "40.7128", lon: "-74.0060" }, // NYC
-    "101": { lat: "40.7128", lon: "-74.0060" },
-    "900": { lat: "34.0522", lon: "-118.2437" }, // LA
-    "606": { lat: "41.8781", lon: "-87.6298" }, // Chicago
-    "770": { lat: "29.7604", lon: "-95.3698" }, // Houston
-  };
-  return regions[prefix] || { lat: "40.7128", lon: "-74.0060" };
+    return { lat: place.latitude, lon: place.longitude };
+  } catch {
+    // Fallback: let Ticketmaster try with postalCode directly
+    return { lat: "", lon: "" };
+  }
 }
 
 // Fetch all music events near a zip code, paginating through results
@@ -258,15 +215,17 @@ async function fetchAllLocalEvents(
   const maxPages = 5; // 5 pages × 200 events = up to 1000 events
 
   // Resolve zip to lat/long for reliable geo search
-  const coords =
-    (await zipToLatLong(zipCode)) || zipToApproxLatLong(zipCode);
+  const coords = await zipToLatLong(zipCode);
 
   for (let page = 0; page < maxPages; page++) {
+    const locationParams: Record<string, string> =
+      coords.lat && coords.lon
+        ? { latlong: `${coords.lat},${coords.lon}`, radius: String(radius), unit: "miles" }
+        : { postalCode: zipCode, radius: String(radius), unit: "miles" };
+
     const params = new URLSearchParams({
       apikey: apiKey,
-      latlong: `${coords.lat},${coords.lon}`,
-      radius: String(radius),
-      unit: "miles",
+      ...locationParams,
       classificationName: "music",
       sort: "date,asc",
       size: "200",
