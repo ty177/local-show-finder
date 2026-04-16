@@ -235,14 +235,9 @@ async function fetchAllLocalEvents(
     const response = await fetch(`${BASE_URL}/events.json?${params}`);
 
     if (response.status === 429) {
-      await new Promise((r) => setTimeout(r, 1100));
-      const retry = await fetch(`${BASE_URL}/events.json?${params}`);
-      if (!retry.ok) break;
-      const data: TicketmasterResponse = await retry.json();
-      const events = data._embedded?.events || [];
-      allEvents.push(...events);
-      if (!data.page || page >= (data.page.totalPages || 1) - 1) break;
-      continue;
+      throw new Error(
+        "Ticketmaster API rate limit exceeded. The daily quota (5,000 calls) has been reached. Please try again tomorrow."
+      );
     }
 
     if (!response.ok) break;
