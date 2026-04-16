@@ -135,9 +135,21 @@ export default function Home() {
           </button>
 
           {error && (
-            <p className="mt-3 text-sm text-red-600 dark:text-red-400">
-              {error}
-            </p>
+            error.toLowerCase().includes("rate limit") ? (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+                <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                  &#9203; Daily API Limit Reached
+                </p>
+                <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                  The Ticketmaster API limit has been exceeded for today. Please
+                  try again tomorrow — the limit resets at midnight.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )
           )}
         </section>
 

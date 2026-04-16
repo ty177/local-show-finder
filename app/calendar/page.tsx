@@ -96,16 +96,36 @@ export default function CalendarPage() {
     );
   }
 
+  const isRateLimited = error?.toLowerCase().includes("rate limit");
+
   if (error) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-12 text-center">
-        <p className="text-lg text-red-600 dark:text-red-400">{error}</p>
-        <Link
-          href="/"
-          className="mt-4 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          Go to Upload Page
-        </Link>
+        {isRateLimited ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 dark:border-amber-800 dark:bg-amber-900/20">
+            <div className="mb-4 text-4xl">&#9203;</div>
+            <h2 className="text-xl font-bold text-amber-800 dark:text-amber-300">
+              Daily API Limit Reached
+            </h2>
+            <p className="mt-3 text-amber-700 dark:text-amber-400">
+              The Ticketmaster API has a daily limit of 5,000 requests which has
+              been exceeded for today. The limit resets at midnight.
+            </p>
+            <p className="mt-4 text-sm font-medium text-amber-600 dark:text-amber-500">
+              Please try again tomorrow and your shows will load.
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="text-lg text-red-600 dark:text-red-400">{error}</p>
+            <Link
+              href="/"
+              className="mt-4 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Go to Upload Page
+            </Link>
+          </>
+        )}
       </div>
     );
   }
