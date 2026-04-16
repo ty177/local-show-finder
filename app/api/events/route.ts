@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findEventsForArtists } from "@/lib/ticketmaster";
+import { setArtists, setEvents, setZipCode } from "@/lib/store";
 import type { Artist } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
     }
 
     const events = await findEventsForArtists(artists, zip, 40);
+
+    // Persist to server-side store so the .ics feed can access them
+    await setArtists(artists);
+    await setEvents(events);
+    await setZipCode(zip);
 
     return NextResponse.json({
       events,

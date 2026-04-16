@@ -20,9 +20,16 @@ export async function GET(request: Request) {
   }
 
   const artists = await getArtists();
+
+  // If no artists in store, return an empty but valid calendar
+  // (calendar apps need valid ical, not an error page)
   if (artists.length === 0) {
-    return new Response("No artists loaded. Upload playlist CSVs first.", {
-      status: 400,
+    const emptyIcs = generateIcsFeed([], zip);
+    return new Response(emptyIcs, {
+      headers: {
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Cache-Control": "public, max-age=300",
+      },
     });
   }
 
@@ -37,9 +44,15 @@ export async function GET(request: Request) {
       events = await findEventsForArtists(artists, zip, 40);
       await setEvents(events);
     } catch {
-      // Fall back to cached events if available
+      // Fall back to cached events if available — if none, return empty cal
       if (events.length === 0) {
-        return new Response("Failed to fetch events", { status: 500 });
+        const emptyIcs = generateIcsFeed([], zip);
+        return new Response(emptyIcs, {
+          headers: {
+            "Content-Type": "text/calendar; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
+          },
+        });
       }
     }
   }
@@ -49,7 +62,6 @@ export async function GET(request: Request) {
   return new Response(icsContent, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="local-shows.ics"',
       "Cache-Control": "public, max-age=3600",
     },
   });
