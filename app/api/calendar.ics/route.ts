@@ -7,24 +7,32 @@ import {
   setZipCode,
   shouldRefresh,
   getZipCode,
+  getUserIdByFeedToken,
 } from "@/lib/store";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const token = searchParams.get("token");
   const zip = searchParams.get("zip");
 
-  if (!zip || !/^\d{5}$/.test(zip)) {
-    return new Response("Valid 5-digit zip code required as ?zip= parameter", {
-      status: 400,
-    });
+  // Look up user by feed token
+  if (!token) {
+    return new Response(
+      "Missing ?token= parameter. Use the URL from your calendar page.",
+      { status: 400 }
+    );
   }
 
-  const artists = await getArtists();
+  const userId = await getUserIdByFeedToken(token);
+  if (!userId) {
+    return new Response("Invalid or expired feed token.", { status: 403 });
+  }
 
-  // If no artists in store, return an empty but valid calendar
-  // (calendar apps need valid ical, not an error page)
+  const artists = await getArtists(userId);
+
+  // If no artists, return valid empty calendar
   if (artists.length === 0) {
-    const emptyIcs = generateIcsFeed([], zip);
+    const emptyIcs = generateIcsFeed([], zip || "00000");
     return new Response(emptyIcs, {
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",
@@ -33,20 +41,30 @@ export async function GET(request: Request) {
     });
   }
 
-  let events = await getEvents();
-  const stale = await shouldRefresh();
-  const currentZip = await getZipCode();
+  const userZip = zip || (await getZipCode(userId));
+  if (!userZip) {
+    const emptyIcs = generateIcsFeed([], "00000");
+    return new Response(emptyIcs, {
+      headers: {
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Cache-Control": "public, max-age=300",
+      },
+    });
+  }
 
-  // Refresh if stale or different zip
-  if (stale || events.length === 0 || currentZip !== zip) {
+  let events = await getEvents(userId);
+  const stale = await shouldRefresh(userId);
+
+  // Refresh if stale
+  if (stale || events.length === 0) {
     try {
-      await setZipCode(zip);
-      events = await findEventsForArtists(artists, zip, 40);
-      await setEvents(events);
+      await setZipCode(userId, userZip);
+      events = await findEventsForArtists(artists, userZip, 40);
+      await setEvents(userId, events);
     } catch {
-      // Fall back to cached events if available — if none, return empty cal
+      // Fall back to cached events
       if (events.length === 0) {
-        const emptyIcs = generateIcsFeed([], zip);
+        const emptyIcs = generateIcsFeed([], userZip);
         return new Response(emptyIcs, {
           headers: {
             "Content-Type": "text/calendar; charset=utf-8",
@@ -57,7 +75,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const icsContent = generateIcsFeed(events, zip);
+  const icsContent = generateIcsFeed(events, userZip);
 
   return new Response(icsContent, {
     headers: {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
+import { useSession, signIn } from "next-auth/react";
 import { format, parseISO } from "date-fns";
 import SpotifyEmbed from "@/components/SpotifyEmbed";
 import type { EventData } from "@/lib/types";
@@ -12,10 +13,17 @@ export default function EventPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const { data: session, status } = useSession();
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (status === "loading") return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
+
     // Read events from localStorage cache
     const cachedEvents = localStorage.getItem("showfinder_events");
     if (cachedEvents) {
@@ -28,12 +36,30 @@ export default function EventPage({
       }
     }
     setLoading(false);
-  }, [id]);
+  }, [id, session, status]);
 
-  if (loading) {
+  if (status === "loading" || loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 text-center">
+        <div>
+          <p className="text-lg text-zinc-500 dark:text-zinc-400">
+            Sign in to view event details.
+          </p>
+          <button
+            onClick={() => signIn()}
+            className="mt-4 rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            Sign In
+          </button>
+        </div>
       </div>
     );
   }

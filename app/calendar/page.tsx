@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useSession, signIn } from "next-auth/react";
 import EventCalendar from "@/components/EventCalendar";
 import EventCard from "@/components/EventCard";
 import type { EventData, Artist } from "@/lib/types";
 
 export default function CalendarPage() {
+  const { data: session, status } = useSession();
   const [events, setEvents] = useState<EventData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,9 +44,14 @@ export default function CalendarPage() {
 
       setEvents(data.events);
       setArtistCount(data.artistCount || 0);
-      // Cache events for the event detail page
       localStorage.setItem("showfinder_events", JSON.stringify(data.events));
       localStorage.setItem("showfinder_artistCount", String(data.artistCount));
+      if (data.feedToken) {
+        localStorage.setItem("showfinder_feedToken", data.feedToken);
+        setIcsUrl(
+          `${window.location.origin}/api/calendar.ics?token=${data.feedToken}&zip=${zip}`
+        );
+      }
     } catch {
       setError("Failed to load events. Please try again.");
     } finally {
@@ -53,6 +60,12 @@ export default function CalendarPage() {
   }, []);
 
   useEffect(() => {
+    if (status === "loading") return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
+
     const zip = localStorage.getItem("showfinder_zip") || "";
     if (!zip) {
       setLoading(false);
@@ -61,7 +74,14 @@ export default function CalendarPage() {
     }
 
     setZipCode(zip);
-    setIcsUrl(`${window.location.origin}/api/calendar.ics?zip=${zip}`);
+
+    // Build .ics URL from cached feed token
+    const feedToken = localStorage.getItem("showfinder_feedToken");
+    if (feedToken) {
+      setIcsUrl(
+        `${window.location.origin}/api/calendar.ics?token=${feedToken}&zip=${zip}`
+      );
+    }
 
     // Try cached events first, then refresh
     const cachedEvents = localStorage.getItem("showfinder_events");
@@ -77,11 +97,38 @@ export default function CalendarPage() {
     } else {
       fetchEvents(zip);
     }
-  }, [fetchEvents]);
+  }, [fetchEvents, session, status]);
 
   const handleCopyIcs = () => {
     navigator.clipboard.writeText(icsUrl);
   };
+
+  // Auth gate
+  if (status === "loading" || (loading && !session)) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4 text-center">
+        <div>
+          <p className="text-lg text-zinc-500 dark:text-zinc-400">
+            Sign in to view your show calendar.
+          </p>
+          <button
+            onClick={() => signIn()}
+            className="mt-4 rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

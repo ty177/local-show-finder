@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useSession, signIn } from "next-auth/react";
 import CsvUploader from "@/components/CsvUploader";
 import ZipCodeInput from "@/components/ZipCodeInput";
 import type { Artist } from "@/lib/types";
@@ -12,6 +13,7 @@ interface UploadResult {
 }
 
 export default function Home() {
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [zipCode, setZipCode] = useState("");
@@ -60,6 +62,9 @@ export default function Home() {
       localStorage.setItem("showfinder_zip", zipCode);
       localStorage.setItem("showfinder_events", JSON.stringify(data.events));
       localStorage.setItem("showfinder_artistCount", String(data.artistCount));
+      if (data.feedToken) {
+        localStorage.setItem("showfinder_feedToken", data.feedToken);
+      }
       router.push("/calendar");
     } catch {
       setError("Network error. Please try again.");
@@ -67,6 +72,38 @@ export default function Home() {
       setIsSearching(false);
     }
   };
+
+  // Show sign-in prompt if not authenticated
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-4">
+        <div className="max-w-md text-center">
+          <div className="mb-6 text-5xl">🎸</div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Local Show Finder
+          </h1>
+          <p className="mt-3 text-lg text-zinc-500 dark:text-zinc-400">
+            Upload your Spotify playlists, find upcoming concerts near you, and
+            subscribe to a live calendar feed.
+          </p>
+          <button
+            onClick={() => signIn()}
+            className="mt-8 rounded-xl bg-emerald-600 px-8 py-3 text-lg font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
+          >
+            Sign In to Get Started
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
