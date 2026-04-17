@@ -33,6 +33,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Spotify({
       authorization: {
+        url: "https://accounts.spotify.com/authorize",
         params: { scope: SPOTIFY_SCOPES },
       },
     }),
