@@ -3,11 +3,11 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
-import CsvUploader from "@/components/CsvUploader";
+import PlaylistPicker from "@/components/PlaylistPicker";
 import ZipCodeInput from "@/components/ZipCodeInput";
 import type { Artist } from "@/lib/types";
 
-interface UploadResult {
+interface ImportResult {
   artistCount: number;
   songCount: number;
 }
@@ -15,19 +15,19 @@ interface UploadResult {
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [zipCode, setZipCode] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = useCallback((result: UploadResult) => {
-    setUploadResult(result);
+  const handleImport = useCallback((result: ImportResult) => {
+    setImportResult(result);
     setError(null);
   }, []);
 
   const handleFindShows = async () => {
-    if (!uploadResult || uploadResult.artistCount === 0) {
-      setError("Upload playlist CSVs first.");
+    if (!importResult || importResult.artistCount === 0) {
+      setError("Import your playlists first.");
       return;
     }
     if (zipCode.length !== 5) {
@@ -37,7 +37,7 @@ export default function Home() {
 
     const storedArtists = localStorage.getItem("showfinder_artists");
     if (!storedArtists) {
-      setError("Artist data not found. Please re-upload your CSVs.");
+      setError("Artist data not found. Please re-import your playlists.");
       return;
     }
 
@@ -58,7 +58,6 @@ export default function Home() {
         return;
       }
 
-      // Cache events in localStorage for the calendar page
       localStorage.setItem("showfinder_zip", zipCode);
       localStorage.setItem("showfinder_events", JSON.stringify(data.events));
       localStorage.setItem("showfinder_artistCount", String(data.artistCount));
@@ -73,7 +72,6 @@ export default function Home() {
     }
   };
 
-  // Show sign-in prompt if not authenticated
   if (status === "loading") {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -91,14 +89,17 @@ export default function Home() {
             Local Show Finder
           </h1>
           <p className="mt-3 text-lg text-zinc-500 dark:text-zinc-400">
-            Upload your Spotify playlists, find upcoming concerts near you, and
-            subscribe to a live calendar feed.
+            Connect your Spotify, find upcoming concerts near you, and subscribe
+            to a live calendar feed.
           </p>
           <button
-            onClick={() => signIn()}
-            className="mt-8 rounded-xl bg-emerald-600 px-8 py-3 text-lg font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
+            onClick={() => signIn("spotify")}
+            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-[#1DB954] px-8 py-3 text-lg font-semibold text-white shadow-sm transition-all hover:bg-[#1ed760]"
           >
-            Sign In to Get Started
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z" />
+            </svg>
+            Continue with Spotify
           </button>
         </div>
       </div>
@@ -112,32 +113,31 @@ export default function Home() {
           Find Local Shows
         </h1>
         <p className="mt-3 text-lg text-zinc-500 dark:text-zinc-400">
-          Upload your Spotify playlist exports and discover upcoming concerts
-          near you.
+          Pick your Spotify playlists and discover upcoming concerts near you.
         </p>
       </div>
 
       <div className="space-y-8">
-        {/* Step 1: Upload CSVs */}
+        {/* Step 1: Pick playlists */}
         <section>
           <div className="mb-3 flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
               1
             </span>
-            <h2 className="text-lg font-semibold">Upload Playlists</h2>
+            <h2 className="text-lg font-semibold">Import Playlists</h2>
           </div>
-          <CsvUploader onUploadComplete={handleUpload} />
-          {uploadResult && (
+          <PlaylistPicker onImportComplete={handleImport} />
+          {importResult && (
             <div className="mt-4 rounded-xl bg-emerald-50 p-4 dark:bg-emerald-900/20">
               <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                Loaded {uploadResult.artistCount} artists and{" "}
-                {uploadResult.songCount} songs from your playlists.
+                Imported {importResult.artistCount} artists and{" "}
+                {importResult.songCount} songs from Spotify.
               </p>
             </div>
           )}
         </section>
 
-        {/* Step 2: Enter zip code */}
+        {/* Step 2: Zip code */}
         <section>
           <div className="mb-3 flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
@@ -158,7 +158,7 @@ export default function Home() {
           </div>
           <button
             onClick={handleFindShows}
-            disabled={isSearching || !uploadResult || zipCode.length !== 5}
+            disabled={isSearching || !importResult || zipCode.length !== 5}
             className="w-full rounded-xl bg-emerald-600 px-6 py-3 text-lg font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-700 dark:hover:bg-emerald-600"
           >
             {isSearching ? (
@@ -188,30 +188,6 @@ export default function Home() {
               </p>
             )
           )}
-        </section>
-
-        {/* How to export from Spotify */}
-        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-800/50">
-          <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            How to export your Spotify playlists as CSV
-          </h3>
-          <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-zinc-500 dark:text-zinc-400">
-            <li>
-              Go to{" "}
-              <a
-                href="https://www.exportify.net/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-emerald-600 underline dark:text-emerald-400"
-              >
-                Exportify
-              </a>{" "}
-              and sign in with your Spotify account
-            </li>
-            <li>Select the playlists you want to export</li>
-            <li>Download each as a CSV file</li>
-            <li>Upload the CSV files above</li>
-          </ol>
         </section>
       </div>
     </div>
