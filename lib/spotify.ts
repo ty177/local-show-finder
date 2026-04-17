@@ -8,6 +8,8 @@ export interface SpotifyPlaylist {
   trackCount: number;
   imageUrl: string;
   owner: string;
+  ownerId: string;
+  restricted: boolean; // true if likely unreadable by dev-mode apps (Spotify-owned)
 }
 
 interface SpotifyArtistRef {
@@ -40,7 +42,7 @@ interface SpotifyPlaylistRaw {
   name: string;
   images: { url: string }[];
   tracks: { total: number };
-  owner: { display_name: string };
+  owner: { display_name: string; id: string };
 }
 
 async function spotifyFetch<T>(
@@ -94,6 +96,10 @@ export async function fetchUserPlaylists(
     trackCount: p.tracks?.total || 0,
     imageUrl: p.images?.[0]?.url || "",
     owner: p.owner?.display_name || "",
+    ownerId: p.owner?.id || "",
+    // Spotify-owned playlists (editorial, algorithmic) can't be read by
+    // dev-mode apps. Owner id "spotify" is the common marker.
+    restricted: p.owner?.id === "spotify",
   }));
 }
 
@@ -101,13 +107,22 @@ export async function fetchPlaylistTracks(
   accessToken: string,
   playlistId: string
 ): Promise<SpotifyTrack[]> {
-  const items = await fetchAllPages<SpotifyPlaylistItem>(
-    accessToken,
-    `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,album(name),artists(name))),next,total`
-  );
-  return items
-    .map((i) => i.track)
-    .filter((t): t is SpotifyTrack => t !== null && !!t.id);
+  try {
+    const items = await fetchAllPages<SpotifyPlaylistItem>(
+      accessToken,
+      `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,album(name),artists(name))),next,total`
+    );
+    return items
+      .map((i) => i.track)
+      .filter((t): t is SpotifyTrack => t !== null && !!t.id);
+  } catch (err) {
+    // Dev-mode Spotify apps can't read Spotify-owned / editorial playlists.
+    // Skip and continue instead of failing the whole import.
+    if ((err as Error).message.includes("403")) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function fetchLikedSongs(

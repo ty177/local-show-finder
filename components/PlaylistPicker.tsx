@@ -8,6 +8,8 @@ interface Playlist {
   trackCount: number;
   imageUrl: string;
   owner: string;
+  ownerId: string;
+  restricted: boolean;
 }
 
 interface ImportResult {
@@ -63,10 +65,11 @@ export default function PlaylistPicker({
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === playlists.length) {
+    const selectable = playlists.filter((p) => !p.restricted);
+    if (selectedIds.size === selectable.length && selectable.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(playlists.map((p) => p.id)));
+      setSelectedIds(new Set(selectable.map((p) => p.id)));
     }
   };
 
@@ -174,13 +177,23 @@ export default function PlaylistPicker({
         {playlists.map((p) => (
           <label
             key={p.id}
-            className="flex cursor-pointer items-center gap-3 border-b border-zinc-100 p-3 transition-colors last:border-0 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/50"
+            className={`flex items-center gap-3 border-b border-zinc-100 p-3 transition-colors last:border-0 dark:border-zinc-700 ${
+              p.restricted
+                ? "cursor-not-allowed opacity-50"
+                : "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+            }`}
+            title={
+              p.restricted
+                ? "Spotify-owned playlists can't be imported (editorial/algorithmic content)"
+                : undefined
+            }
           >
             <input
               type="checkbox"
               checked={selectedIds.has(p.id)}
-              onChange={() => toggle(p.id)}
-              className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+              onChange={() => !p.restricted && toggle(p.id)}
+              disabled={p.restricted}
+              className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed"
             />
             {p.imageUrl ? (
               <img
@@ -194,7 +207,14 @@ export default function PlaylistPicker({
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-semibold">{p.name}</p>
+              <p className="flex items-center gap-2 truncate text-sm font-semibold">
+                {p.name}
+                {p.restricted && (
+                  <span className="shrink-0 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                    Spotify-owned
+                  </span>
+                )}
+              </p>
               <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
                 {p.trackCount} track{p.trackCount === 1 ? "" : "s"}
                 {p.owner ? ` · ${p.owner}` : ""}
