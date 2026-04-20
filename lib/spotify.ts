@@ -30,7 +30,9 @@ interface SpotifyPagedResponse<T> {
 }
 
 interface SpotifyPlaylistItem {
-  track: SpotifyTrack | null;
+  // Legacy shape used `track`; new shape uses `item`. Handle both.
+  track?: SpotifyTrack | null;
+  item?: SpotifyTrack | null;
 }
 
 interface SpotifySavedTrackItem {
@@ -41,7 +43,9 @@ interface SpotifyPlaylistRaw {
   id: string;
   name: string;
   images: { url: string }[];
-  tracks: { total: number };
+  // Both legacy (`tracks`) and new (`items`) shapes carry a track count
+  tracks?: { total: number };
+  items?: { total: number };
   owner: { display_name: string; id: string };
 }
 
@@ -109,7 +113,7 @@ export async function fetchUserPlaylists(
   return raw.map((p) => ({
     id: p.id,
     name: p.name,
-    trackCount: p.tracks?.total || 0,
+    trackCount: p.items?.total ?? p.tracks?.total ?? 0,
     imageUrl: p.images?.[0]?.url || "",
     owner: p.owner?.display_name || "",
     ownerId: p.owner?.id || "",
@@ -125,48 +129,24 @@ export interface PlaylistFetchResult {
   error: string | null;
 }
 
-interface SpotifyPlaylistDetailResponse {
-  tracks: {
-    items: SpotifyPlaylistItem[];
-    next: string | null;
-    total: number;
-  };
-}
-
 export async function fetchPlaylistTracks(
   accessToken: string,
   playlistId: string
 ): Promise<PlaylistFetchResult> {
-  // Spotify's dev-mode apps currently return 403 on the
-  // /playlists/{id}/tracks endpoint even for playlists the user owns.
-  // The workaround: read from /playlists/{id} directly, which embeds
-  // the first page of tracks, then paginate via tracks.next.
+  // Spotify deprecated /playlists/{id}/tracks (returns 403 in dev mode).
+  // The new endpoint is /playlists/{id}/items, which returns items where
+  // each entry has `item` (the track) rather than the legacy `track` field.
   try {
-    const tracks: SpotifyTrack[] = [];
-
-    const firstRes = await spotifyFetch<SpotifyPlaylistDetailResponse>(
+    const items = await fetchAllPages<SpotifyPlaylistItem>(
       accessToken,
-      `${SPOTIFY_API}/playlists/${playlistId}?fields=tracks.items(track(id,name,album(name),artists(name))),tracks.next,tracks.total`
+      `${SPOTIFY_API}/playlists/${playlistId}/items?limit=100`
     );
 
-    const addItems = (items: SpotifyPlaylistItem[]) => {
-      for (const it of items) {
-        if (it?.track?.id) tracks.push(it.track);
-      }
-    };
-
-    addItems(firstRes.tracks?.items || []);
-
-    // Paginate through the rest via tracks.next (this endpoint does work
-    // in dev mode, unlike the base /playlists/{id}/tracks call)
-    let next = firstRes.tracks?.next;
-    while (next) {
-      const page = await spotifyFetch<SpotifyPagedResponse<SpotifyPlaylistItem>>(
-        accessToken,
-        next
-      );
-      addItems(page.items);
-      next = page.next;
+    const tracks: SpotifyTrack[] = [];
+    for (const it of items) {
+      // Handle both new (`item`) and legacy (`track`) shapes
+      const t = it?.item ?? it?.track;
+      if (t?.id) tracks.push(t);
     }
 
     return { tracks, error: null };
