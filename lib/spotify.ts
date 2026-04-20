@@ -113,9 +113,9 @@ export async function fetchUserPlaylists(
     imageUrl: p.images?.[0]?.url || "",
     owner: p.owner?.display_name || "",
     ownerId: p.owner?.id || "",
-    // As of late 2024, Spotify dev-mode apps can only read playlists
-    // owned by the authenticated user. Anything else (followed, Spotify-
-    // owned editorial, algorithmic) is silently empty or 403s.
+    // Spotify dev-mode apps can only reliably read playlists owned by
+    // the authenticated user. Followed / Spotify-owned playlists may
+    // return empty or 403.
     restricted: p.owner?.id !== myId,
   }));
 }
@@ -125,20 +125,50 @@ export interface PlaylistFetchResult {
   error: string | null;
 }
 
+interface SpotifyPlaylistDetailResponse {
+  tracks: {
+    items: SpotifyPlaylistItem[];
+    next: string | null;
+    total: number;
+  };
+}
+
 export async function fetchPlaylistTracks(
   accessToken: string,
   playlistId: string
 ): Promise<PlaylistFetchResult> {
+  // Spotify's dev-mode apps currently return 403 on the
+  // /playlists/{id}/tracks endpoint even for playlists the user owns.
+  // The workaround: read from /playlists/{id} directly, which embeds
+  // the first page of tracks, then paginate via tracks.next.
   try {
-    // Don't use `fields=` — sometimes it excludes items unexpectedly.
-    // Fetch full payload and extract what we need.
-    const items = await fetchAllPages<SpotifyPlaylistItem>(
+    const tracks: SpotifyTrack[] = [];
+
+    const firstRes = await spotifyFetch<SpotifyPlaylistDetailResponse>(
       accessToken,
-      `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100`
+      `${SPOTIFY_API}/playlists/${playlistId}?fields=tracks.items(track(id,name,album(name),artists(name))),tracks.next,tracks.total`
     );
-    const tracks = items
-      .map((i) => i.track)
-      .filter((t): t is SpotifyTrack => t !== null && !!t?.id);
+
+    const addItems = (items: SpotifyPlaylistItem[]) => {
+      for (const it of items) {
+        if (it?.track?.id) tracks.push(it.track);
+      }
+    };
+
+    addItems(firstRes.tracks?.items || []);
+
+    // Paginate through the rest via tracks.next (this endpoint does work
+    // in dev mode, unlike the base /playlists/{id}/tracks call)
+    let next = firstRes.tracks?.next;
+    while (next) {
+      const page = await spotifyFetch<SpotifyPagedResponse<SpotifyPlaylistItem>>(
+        accessToken,
+        next
+      );
+      addItems(page.items);
+      next = page.next;
+    }
+
     return { tracks, error: null };
   } catch (err) {
     return { tracks: [], error: (err as Error).message };
