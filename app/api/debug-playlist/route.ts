@@ -28,12 +28,22 @@ export async function GET(request: Request) {
   );
   const pl = plRes.ok ? await plRes.json() : { error: await plRes.text() };
 
-  // 3. Direct call to tracks (first page only)
+  // 3. Direct call to /tracks subpath (known-broken in dev mode)
   const trRes = await fetch(
     `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=5`,
     { headers }
   );
   const tr = trRes.ok ? await trRes.json() : { error: await trRes.text() };
+
+  // 4. WORKAROUND: Fetch via /playlists/{id}?fields=tracks(...) — the way
+  // the import code actually works now
+  const fieldsRes = await fetch(
+    `https://api.spotify.com/v1/playlists/${playlistId}?fields=tracks.items(track(id,name,album(name),artists(name))),tracks.next,tracks.total`,
+    { headers }
+  );
+  const fields = fieldsRes.ok
+    ? await fieldsRes.json()
+    : { error: await fieldsRes.text() };
 
   return NextResponse.json({
     authenticatedAs: {
@@ -51,19 +61,21 @@ export async function GET(request: Request) {
       snapshot_id: pl?.snapshot_id,
       error: pl?.error,
     },
-    tracksEndpoint: {
+    tracksSubpath_BROKEN: {
       status: trRes.status,
       total: tr?.total,
       itemsLength: Array.isArray(tr?.items) ? tr.items.length : null,
-      firstItem: tr?.items?.[0]
-        ? {
-            added_at: tr.items[0].added_at,
-            is_local: tr.items[0].is_local,
-            trackName: tr.items[0].track?.name,
-            trackId: tr.items[0].track?.id,
-          }
-        : null,
       error: tr?.error,
+    },
+    fieldsWorkaround: {
+      status: fieldsRes.status,
+      total: fields?.tracks?.total,
+      itemsLength: Array.isArray(fields?.tracks?.items)
+        ? fields.tracks.items.length
+        : null,
+      firstTrackName: fields?.tracks?.items?.[0]?.track?.name,
+      next: fields?.tracks?.next,
+      error: fields?.error,
     },
   });
 }
