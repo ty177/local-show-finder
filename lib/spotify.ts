@@ -82,13 +82,29 @@ async function fetchAllPages<T>(
   return all;
 }
 
+interface SpotifyMe {
+  id: string;
+  display_name?: string;
+}
+
+export async function fetchCurrentUser(
+  accessToken: string
+): Promise<SpotifyMe> {
+  return spotifyFetch<SpotifyMe>(accessToken, `${SPOTIFY_API}/me`);
+}
+
 export async function fetchUserPlaylists(
   accessToken: string
 ): Promise<SpotifyPlaylist[]> {
-  const raw = await fetchAllPages<SpotifyPlaylistRaw>(
-    accessToken,
-    `${SPOTIFY_API}/me/playlists?limit=50`
-  );
+  const [me, raw] = await Promise.all([
+    fetchCurrentUser(accessToken),
+    fetchAllPages<SpotifyPlaylistRaw>(
+      accessToken,
+      `${SPOTIFY_API}/me/playlists?limit=50`
+    ),
+  ]);
+
+  const myId = me.id;
 
   return raw.map((p) => ({
     id: p.id,
@@ -97,9 +113,10 @@ export async function fetchUserPlaylists(
     imageUrl: p.images?.[0]?.url || "",
     owner: p.owner?.display_name || "",
     ownerId: p.owner?.id || "",
-    // Spotify-owned playlists (editorial, algorithmic) can't be read by
-    // dev-mode apps. Owner id "spotify" is the common marker.
-    restricted: p.owner?.id === "spotify",
+    // As of late 2024, Spotify dev-mode apps can only read playlists
+    // owned by the authenticated user. Anything else (followed, Spotify-
+    // owned editorial, algorithmic) is silently empty or 403s.
+    restricted: p.owner?.id !== myId,
   }));
 }
 

@@ -142,8 +142,17 @@ export default function PlaylistPicker({
   const totalSelected =
     selectedIds.size + (includeLiked ? 1 : 0);
 
+  const hasRestricted = playlists.some((p) => p.restricted);
+
   return (
     <div className="space-y-3">
+      {hasRestricted && (
+        <p className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          Only playlists you created can be imported. Playlists you follow
+          (including Spotify-curated ones) are disabled due to Spotify API
+          restrictions.
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <button
           onClick={toggleAll}
@@ -188,7 +197,7 @@ export default function PlaylistPicker({
             }`}
             title={
               p.restricted
-                ? "Spotify-owned playlists can't be imported (editorial/algorithmic content)"
+                ? "Only playlists you created can be imported (Spotify API dev-mode limitation)"
                 : undefined
             }
           >
@@ -215,7 +224,7 @@ export default function PlaylistPicker({
                 {p.name}
                 {p.restricted && (
                   <span className="shrink-0 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    Spotify-owned
+                    Not importable
                   </span>
                 )}
               </p>
