@@ -76,6 +76,8 @@ export async function GET(request: Request) {
       firstTrackName: fields?.tracks?.items?.[0]?.track?.name,
       next: fields?.tracks?.next,
       error: fields?.error,
+      rawResponse: fields, // dump the whole thing
     },
+    rawPlaylistMeta: pl, // also dump full metadata
   });
 }
