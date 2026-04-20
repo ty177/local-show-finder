@@ -6,7 +6,21 @@ export default function SignInPage() {
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4">
       <div className="w-full max-w-sm text-center">
-        <div className="mb-6 text-5xl">🎸</div>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="mx-auto mb-6 h-16 w-16 text-emerald-600 dark:text-emerald-400"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="13" r="8" />
+          <circle cx="11" cy="13" r="2" fill="currentColor" />
+          <path d="M18 4l-5 7" />
+          <circle cx="18.5" cy="3.5" r="1.25" fill="currentColor" />
+        </svg>
         <h1 className="text-2xl font-bold">Sign in to Local Show Finder</h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           Connect your Spotify to import playlists and get a personal concert

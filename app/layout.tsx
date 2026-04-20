@@ -36,7 +36,21 @@ export default function RootLayout({
           <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
               <Link href="/" className="flex items-center gap-2 font-bold text-lg">
-                <span className="text-2xl">🎸</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-7 w-7 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="13" r="8" />
+                  <circle cx="11" cy="13" r="2" fill="currentColor" />
+                  <path d="M18 4l-5 7" />
+                  <circle cx="18.5" cy="3.5" r="1.25" fill="currentColor" />
+                </svg>
                 <span>Local Show Finder</span>
               </Link>
               <nav className="flex items-center gap-4">
