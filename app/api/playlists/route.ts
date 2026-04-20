@@ -50,23 +50,41 @@ export async function POST(request: Request) {
     }
 
     // Fetch tracks from selected playlists in parallel
-    const trackPromises: Promise<Awaited<ReturnType<typeof fetchPlaylistTracks>>>[] =
-      (playlistIds || []).map((id) =>
-        fetchPlaylistTracks(session.accessToken!, id)
-      );
+    const playlistResults = await Promise.all(
+      (playlistIds || []).map(async (id) => {
+        const result = await fetchPlaylistTracks(session.accessToken!, id);
+        return { id, ...result };
+      })
+    );
+
+    const allTracks = playlistResults.flatMap((r) => r.tracks);
+
     if (includeLikedSongs) {
-      trackPromises.push(fetchLikedSongs(session.accessToken));
+      try {
+        const liked = await fetchLikedSongs(session.accessToken);
+        allTracks.push(...liked);
+      } catch (err) {
+        // If liked songs fail, include the error in the summary
+        playlistResults.push({
+          id: "liked",
+          tracks: [],
+          error: (err as Error).message,
+        });
+      }
     }
 
-    const trackLists = await Promise.all(trackPromises);
-    const allTracks = trackLists.flat();
-
     const artists = tracksToArtists(allTracks);
+
+    // Summarize per-playlist results for debugging
+    const failed = playlistResults.filter((r) => r.error);
 
     return NextResponse.json({
       artists,
       artistCount: artists.length,
       songCount: artists.reduce((sum, a) => sum + a.songs.length, 0),
+      trackCount: allTracks.length,
+      playlistsFetched: playlistResults.length,
+      failedPlaylists: failed.map((r) => ({ id: r.id, error: r.error })),
     });
   } catch (err) {
     return NextResponse.json(

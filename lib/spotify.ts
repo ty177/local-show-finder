@@ -103,25 +103,28 @@ export async function fetchUserPlaylists(
   }));
 }
 
+export interface PlaylistFetchResult {
+  tracks: SpotifyTrack[];
+  error: string | null;
+}
+
 export async function fetchPlaylistTracks(
   accessToken: string,
   playlistId: string
-): Promise<SpotifyTrack[]> {
+): Promise<PlaylistFetchResult> {
   try {
+    // Don't use `fields=` — sometimes it excludes items unexpectedly.
+    // Fetch full payload and extract what we need.
     const items = await fetchAllPages<SpotifyPlaylistItem>(
       accessToken,
-      `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,album(name),artists(name))),next,total`
+      `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=100`
     );
-    return items
+    const tracks = items
       .map((i) => i.track)
-      .filter((t): t is SpotifyTrack => t !== null && !!t.id);
+      .filter((t): t is SpotifyTrack => t !== null && !!t?.id);
+    return { tracks, error: null };
   } catch (err) {
-    // Dev-mode Spotify apps can't read Spotify-owned / editorial playlists.
-    // Skip and continue instead of failing the whole import.
-    if ((err as Error).message.includes("403")) {
-      return [];
-    }
-    throw err;
+    return { tracks: [], error: (err as Error).message };
   }
 }
 

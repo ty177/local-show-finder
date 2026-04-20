@@ -15,6 +15,8 @@ interface Playlist {
 interface ImportResult {
   artistCount: number;
   songCount: number;
+  trackCount?: number;
+  failedPlaylists?: { id: string; error: string }[];
 }
 
 export default function PlaylistPicker({
@@ -106,6 +108,8 @@ export default function PlaylistPicker({
       onImportComplete({
         artistCount: data.artistCount,
         songCount: data.songCount,
+        trackCount: data.trackCount,
+        failedPlaylists: data.failedPlaylists,
       });
     } catch {
       setError("Network error during import.");

@@ -10,6 +10,8 @@ import type { Artist } from "@/lib/types";
 interface ImportResult {
   artistCount: number;
   songCount: number;
+  trackCount?: number;
+  failedPlaylists?: { id: string; error: string }[];
 }
 
 export default function Home() {
@@ -142,11 +144,33 @@ export default function Home() {
           </div>
           <PlaylistPicker onImportComplete={handleImport} />
           {importResult && (
-            <div className="mt-4 rounded-xl bg-emerald-50 p-4 dark:bg-emerald-900/20">
-              <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                Imported {importResult.artistCount} artists and{" "}
-                {importResult.songCount} songs from Spotify.
-              </p>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-900/20">
+                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                  Imported {importResult.artistCount} artists and{" "}
+                  {importResult.songCount} songs from Spotify
+                  {typeof importResult.trackCount === "number"
+                    ? ` (${importResult.trackCount} tracks total)`
+                    : ""}
+                  .
+                </p>
+              </div>
+              {importResult.failedPlaylists &&
+                importResult.failedPlaylists.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                      {importResult.failedPlaylists.length} playlist(s)
+                      couldn&apos;t be read:
+                    </p>
+                    <ul className="mt-1 list-inside list-disc text-xs text-amber-700 dark:text-amber-400">
+                      {importResult.failedPlaylists.map((f) => (
+                        <li key={f.id}>
+                          {f.id}: {f.error}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
             </div>
           )}
         </section>
