@@ -14,7 +14,7 @@ export default function AuthButton() {
   if (!session) {
     return (
       <button
-        onClick={() => signIn()}
+        onClick={() => signIn("spotify", { callbackUrl: "/" })}
         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
       >
         Sign In
